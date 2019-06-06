@@ -16,7 +16,7 @@ default['bcpc']['keystone']['debug'] = false
 # Set the number of Keystone WSGI processes and threads to use by default on the
 # public API (experimentally threads > 1 may cause problems with the service
 # catalog, for now we recommend scaling only in the processes dimension)
-default['bcpc']['keystone']['wsgi']['processes'] = 5
+default['bcpc']['keystone']['wsgi']['processes'] = 1
 default['bcpc']['keystone']['wsgi']['threads'] = 1
 
 # configure SQLAlchemy overflow/QueuePool sizes
