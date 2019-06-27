@@ -133,6 +133,14 @@ chef_databags:
       secret: XWmecfpS5wS7SMqi4un3
     libvirt:
       secret: 8e4a6c8e-ebe9-4fb2-9df1-e5f15bf41888
+    magnum:
+      creds:
+        db:
+          username: magnum
+          password: 3Dhip8IKy_95O9LwOkpa
+        os:
+          username: magnum
+          password: 3Dhip8IKy_95O9LwOkpa
     neutron:
       creds:
         db:
@@ -219,6 +227,7 @@ chef_roles:
       - recipe[bcpc::nova-head]
       - recipe[bcpc::cinder]
       - recipe[bcpc::heat]
+      - recipe[bcpc::magnum]
       - recipe[bcpc::horizon]
       - recipe[bcpc::os-quota]
       - recipe[bcpc::flavors]
