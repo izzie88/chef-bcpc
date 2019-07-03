@@ -10,6 +10,8 @@ print_debug_info () {
     df -h
     lsblk
     ls -la
+    dpkg -l
+    groups
 }
 
 upgrade_os_osx () {
@@ -50,26 +52,21 @@ install_vagrant_linux () {
     vagrant_deb="vagrant_${vagrant_ver}_x86_64.deb"
     wget "https://releases.hashicorp.com/vagrant/${vagrant_ver}/${vagrant_deb}"
     sudo dpkg -i ${vagrant_deb}
-    sudo apt-get -y install libopus0 libsdl1.2debian libcaca0
-    vb_ver=6.0.8
-    vb_build=130520
-    vb_v=${vb_ver:0:3}
-    vb_deb="virtualbox-${vb_v}_${vb_ver}-${vb_build}~Ubuntu~xenial_amd64.deb"
-    wget "http://download.virtualbox.org/virtualbox/${vb_ver}/${vb_deb}"
-    sudo dpkg -i ${vb_deb}
+    sudo apt-get -y install libvirt-bin libvirt-dev dnsmasq qemu qemu-utils
+    sudo systemctl restart libvirt-bin
+    vagrant plugin install vagrant-libvirt
 }
 
 remove_dbs () {
     sudo /etc/init.d/mysql stop
     sudo /etc/init.d/postgresql stop
     sudo apt-get purge mongodb-org mongodb-org-mongos mongodb-org-server \
-    mongodb-org-shell mongodb-org-tools postgresql-9.2 postgresql-9.3 \
-    postgresql-9.4 postgresql-9.5 postgresql-9.6 postgresql-client \
-    postgresql-client-9.2 postgresql-client-9.3 postgresql-client-9.4 \
-    postgresql-client-9.5 postgresql-client-9.6 postgresql-client-common \
-    postgresql-common postgresql-contrib-9.2 postgresql-contrib-9.3 \
-    postgresql-contrib-9.4 postgresql-contrib-9.5 postgresql-contrib-9.6 \
-    mysql-server-5.6 mysql-server-core-5.6 rabbitmq-server
+    mongodb-org-shell mongodb-org-tools \
+    postgresql-9.4 postgresql-client-9.4 postgresql-contrib-9.4 \
+    postgresql-9.5 postgresql-client-9.5 postgresql-contrib-9.5 \
+    postgresql-9.6 postgresql-client-9.6 postgresql-contrib-9.6 \
+    postgresql-client postgresql-client-common \
+    mysql-server-5.7 mysql-server-core-5.7 mysql-client-5.7
 }
 
 if [ "${TRAVIS_OS_NAME}" == "osx" ] ; then

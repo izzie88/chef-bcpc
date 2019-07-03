@@ -15,11 +15,13 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 
-base_box = 'bento/ubuntu-18.04'
-
-def local_cache(basebox_name)
+def provision_apt_cache(config)
   user_data_path = Vagrant.user_data_path.to_s
-  File.join(user_data_path, 'cache', 'apt', basebox_name)
+  cache_dir = File.join(user_data_path, 'cache', 'apt', config.vm.box)
+  apt_cache_dir = '/var/cache/apt/archives'
+  if ENV['VAGRANT_DEFAULT_PROVIDER'] != 'libvirt'
+    config.vm.synced_folder cache_dir, apt_cache_dir, create: true, type: '9p'
+  end
 end
 
 def setup_proxy(node)
@@ -31,78 +33,48 @@ def setup_proxy(node)
 end
 
 Vagrant.configure(2) do |config|
-  if ENV['DEPLOY_NETWORK_VM'] == 'true'
+  config.vm.box = 'generic/ubuntu1804'
+  config.vm.box_download_insecure = true
+  provision_apt_cache(config)
 
-    config.vm.define 'network' do |node|
-      config.vm.provider 'virtualbox' do |vb|
-        vb.name = 'network'
-        vb.memory = 512
-      end
-      node.vm.hostname = 'network'
-      node.vm.box = base_box
-      node.vm.box_download_insecure = true
-      cache_dir = local_cache(node.vm.box)
-      node.vm.synced_folder cache_dir, '/var/cache/apt/archives', create: true
-      node.vm.network 'private_network', virtualbox__intnet: 'management1',
-                                         auto_config: false
-      node.vm.network 'private_network', virtualbox__intnet: 'management2',
-                                         auto_config: false
-      node.vm.network 'private_network', virtualbox__intnet: 'management3',
-                                         auto_config: false
+  config.vm.provider :libvirt do |lv|
+    if ENV['LIBVIRT_QEMU'] == 'true'
+      lv.driver = 'qemu'
+      lv.cpu_mode = 'custom'
+      config.vm.synced_folder './', '/vagrant'
+    else
+      lv.driver = 'kvm'
+      lv.nested = true
+      lv.cpu_mode = 'host-passthrough'
+      config.vm.synced_folder './', '/vagrant', type: '9p'
+    end
+    lv.cpus = 1
+    lv.memory = 512
+  end
+
+  config.vm.define 'network' do |node|
+    node.vm.hostname = 'network'
+    node.vm.network 'private_network',
+                    ip: '10.121.84.1',
+                    libvirt__netmask: '255.255.255.240',
+                    libvirt__network_name: 'management1',
+                    libvirt__dhcp_enabled: false,
+                    libvirt__forward_mode: 'none'
+    node.vm.network 'private_network',
+                    ip: '10.121.85.1',
+                    libvirt__netmask: '255.255.255.240',
+                    libvirt__network_name: 'management2',
+                    libvirt__dhcp_enabled: false,
+                    libvirt__forward_mode: 'none'
+    node.vm.network 'private_network',
+                    ip: '10.121.86.1',
+                    libvirt__netmask: '255.255.255.240',
+                    libvirt__network_name: 'management3',
+                    libvirt__dhcp_enabled: false,
+                    libvirt__forward_mode: 'none'
+    if ENV['LIBVIRT_QEMU'] != 'true'
       setup_proxy(node)
       node.vm.provision 'shell', path: 'provisioner.sh', args: 'network'
-    end
-
-  else
-
-    # Create 3 TORs
-    (1..3).each do |i|
-      config.vm.define "tor#{i}" do |node|
-        config.vm.provider 'virtualbox' do |vb|
-          vb.name = "tor#{i}"
-          vb.memory = 512
-        end
-        node.vm.box = base_box
-        node.vm.box_download_insecure = true
-        cache_dir = local_cache(node.vm.box)
-        node.vm.synced_folder cache_dir, '/var/cache/apt/archives', create: true
-        node.vm.network 'private_network', virtualbox__intnet: "tor#{i}_spine1",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "tor#{i}_spine2",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "tor#{i}_hv",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "management#{i}",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "storage#{i}",
-                                           auto_config: false
-        setup_proxy(node)
-        node.vm.provision 'shell', path: 'provisioner.sh', args: "tor#{i}"
-        node.vm.hostname = "tor#{i}"
-      end
-    end
-
-    # Create 2 spines
-    (1..2).each do |i|
-      config.vm.define "spine#{i}" do |node|
-        config.vm.provider 'virtualbox' do |vb|
-          vb.name = "spine#{i}"
-          vb.memory = 512
-        end
-        node.vm.box = base_box
-        cache_dir = local_cache(node.vm.box)
-        node.vm.synced_folder cache_dir, '/var/cache/apt/archives', create: true
-        node.vm.box_download_insecure = true
-        node.vm.network 'private_network', virtualbox__intnet: "tor1_spine#{i}",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "tor2_spine#{i}",
-                                           auto_config: false
-        node.vm.network 'private_network', virtualbox__intnet: "tor3_spine#{i}",
-                                           auto_config: false
-        setup_proxy(node)
-        node.vm.provision 'shell', path: 'provisioner.sh', args: "spine#{i}"
-        node.vm.hostname = "spine#{i}"
-      end
     end
   end
 end
