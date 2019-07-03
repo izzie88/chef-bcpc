@@ -17,9 +17,14 @@
 
 require 'yaml'
 
-def local_cache(basebox_name)
+def provision_apt_cache(config)
   user_data_path = Vagrant.user_data_path.to_s
-  File.join(user_data_path, 'cache', 'apt', basebox_name)
+  cache_dir = File.join(user_data_path, 'cache', 'apt', config.vm.box)
+  apt_cache_dir = '/var/cache/apt/archives'
+  config.vm.synced_folder cache_dir, apt_cache_dir,
+                                     create: true,
+                                     type: 'sshfs',
+                                     sshfs_opts_append: '-o cache=no,nonempty'
 end
 
 # load the vm topology profile
@@ -46,16 +51,24 @@ else
   raise "#{hardware} or #{hardware_overrides} not found"
 end
 
-project_name = '/' + File.basename(File.dirname(Dir.getwd))
-vb_folder = `VBoxManage list systemproperties | grep 'Default machine folder'`
-vb_folder = vb_folder.match(/^Default machine folder:\s+(.+)$/)[1]
-
 Vagrant.configure('2') do |config|
   config.ssh.forward_x11 = true
-  config.vm.box = 'bento/ubuntu-18.04'
+  config.vm.box = 'generic/ubuntu1804'
   config.vm.box_download_insecure = true
-  cache_dir = local_cache(config.vm.box)
-  config.vm.synced_folder cache_dir, '/var/cache/apt/archives', create: true
+  provision_apt_cache(config)
+
+  config.vm.provider :libvirt do |lv|
+    if ENV['LIBVIRT_QEMU'] == 'true'
+      lv.driver = 'qemu'
+      lv.cpu_mode = 'custom'
+      config.vm.synced_folder './', '/vagrant'
+    else
+      lv.driver = 'kvm'
+      lv.nested = true
+      lv.cpu_mode = 'host-passthrough'
+      config.vm.synced_folder './', '/vagrant', type: '9p'
+    end
+  end
 
   topology['nodes'].each do |node|
     vm_name = node['host']
@@ -64,8 +77,6 @@ Vagrant.configure('2') do |config|
     hw_profile = hw_profiles[node['hardware_profile']]
 
     config.vm.define vm_name do |subconfig|
-      # vm provisioners starts
-
       # create default user
       subconfig.vm.provision 'shell' do |shell|
         shell.path = 'provisioners/create-default-user.sh'
@@ -77,8 +88,6 @@ Vagrant.configure('2') do |config|
         shell.path = 'provisioners/modify-vagrant-user.sh'
       end
 
-      # vm provisioners ends
-
       # add swap space
       if hw_profile.key?('swap_gb')
         subconfig.vm.provision 'shell' do |s|
@@ -88,31 +97,24 @@ Vagrant.configure('2') do |config|
       end
 
       # network connections
-      #
       host_vars = node['host_vars']
       transit = host_vars['interfaces']['transit']
 
       transit.each do |t_iface|
         args = {}.tap do |a|
-          a[:virtualbox__intnet] = t_iface['neighbor']['name']
-          a[:nic_type] = '82543GC'
-          a[:auto_config] = false
+          a[:ip] = t_iface['ip'].split('/')[0]
           a[:mac] = t_iface['mac'].delete(':')
+          a[:libvirt__network_name] = t_iface['neighbor']['name']
+          a[:libvirt__dhcp_enabled] = false
+          a[:libvirt__forward_mode] = 'none'
         end
-
         subconfig.vm.network('private_network', args)
       end
 
-      subconfig.vm.provider 'virtualbox' do |vb|
-        vb.name = vm_name
-        vb.cpus = hw_profile['cpus']
-        vb.memory = hw_profile['ram_gb'] * 1024
-        vb.customize ['modifyvm', :id, '--groups', project_name]
-        vb.customize ['modifyvm', :id, '--uart1', '0x3F8', '4']
-        vb.customize ['modifyvm', :id, '--uart2', '0x2F8', '3']
-        vb.customize ['modifyvm', :id, '--uartmode1', 'disconnected']
-        vb.customize ['modifyvm', :id, '--uartmode2', 'disconnected']
-        vb.customize ['modifyvm', :id, '--vram', '16']
+      subconfig.vm.provider :libvirt do |lv|
+        lv.cpus = hw_profile['cpus']
+        lv.memory = hw_profile['ram_gb'] * 1024
+        lv.machine_virtual_size = 10
 
         # add additional hard drives
         if hw_profile.key?('ext_disks')
@@ -121,28 +123,9 @@ Vagrant.configure('2') do |config|
           count = hw_profile['ext_disks']['count']
           drive_letters = ('a'..'z').to_a[1..count]
 
-          drive_letters.each_with_index do |l, i|
-            drive_file = "sd#{l}.vdi"
-            drive_fp = File.join(vb_folder, project_name, vm_name, drive_file)
-
-            next if File.exist?(drive_fp)
-
-            drive_port = i + 1
-
-            vb.customize [
-              'createhd',
-              '--filename', drive_fp,
-              '--size', size_gb * 1024
-            ]
-
-            vb.customize [
-              'storageattach', :id,
-              '--storagectl', 'SATA Controller',
-              '--type', 'hdd',
-              '--device', 0,
-              '--port', drive_port,
-              '--medium', drive_fp
-            ]
+          drive_letters.each do |l|
+            device = "sd#{l}"
+            lv.storage :file, size: "#{size_gb}G", device: device.to_s, bus: 'sata'
           end
         end
       end

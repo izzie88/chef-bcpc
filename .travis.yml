@@ -10,7 +10,7 @@ matrix:
 
 before_install: .travis/install-deps.sh
 
-install: .travis/install.sh
+install: travis_wait 45 .travis/install.sh
 
 script:
 - find . -name "*.sh" -print0 | xargs -0 -n1 shellcheck
